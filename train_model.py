@@ -11,6 +11,9 @@ For the absolute best results (5x training time, ~+1-3% Dice):
   python train_model.py --best         (all 5 folds, 1000-epoch cap + early stop,
                                         then ensemble search)
 
+All paths and settings come from config.py (and classes.json) - edit those
+files instead of this script.
+
 Usage:
   python train_model.py                (train fold 0, ~250 epochs with early stop)
   python train_model.py --epochs 500   (more epochs = better but slower)
@@ -27,17 +30,10 @@ import sys
 import threading
 import time
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-os.environ.setdefault("nnUNet_raw", os.path.join(BASE, "nnUNet_raw"))
-os.environ.setdefault("nnUNet_preprocessed", os.path.join(BASE, "nnUNet_preprocessed"))
-os.environ.setdefault("nnUNet_results", os.path.join(BASE, "nnUNet_results"))
+import config
 
-# Windows-friendly worker counts (spawn-based multiprocessing is safer with few workers)
-if os.name == "nt":
-    os.environ.setdefault("nnUNet_n_proc_DA", "2")
-    os.environ.setdefault("nnUNet_def_n_proc", "2")
+config.setup_environment()
 
-DATASET = "Dataset001_RoadCracks"
 TRAINERS = {250: "nnUNetTrainer_250epochs",
             500: "nnUNetTrainer_500epochs",
             1000: "nnUNetTrainer_1000epochs"}
@@ -81,10 +77,10 @@ class EarlyStopper:
     """Watches the nnU-Net training log and stops training once the validation
     Dice stops improving for a while."""
 
-    def __init__(self, fold_dir, patience=40, min_epochs=80):
+    def __init__(self, fold_dir, patience=None, min_epochs=None):
         self.fold_dir = fold_dir
-        self.patience = patience
-        self.min_epochs = min_epochs
+        self.patience = config.EARLY_STOP_PATIENCE if patience is None else patience
+        self.min_epochs = config.EARLY_STOP_MIN_EPOCHS if min_epochs is None else min_epochs
         self.best_dice = -1.0
         self.best_epoch = 0
         self.last_epoch = 0
@@ -178,13 +174,13 @@ def main():
                     help="Train all 5 folds and run ensemble search (best results, ~5x time)")
     args = ap.parse_args()
     if args.epochs is None:
-        args.epochs = 1000 if args.best else 250
+        args.epochs = config.EPOCHS_BEST if args.best else config.EPOCHS_DEFAULT
 
     print("=" * 60)
     print("  STEP 3/4 - TRAINING")
     print("=" * 60)
 
-    dataset_dir = os.path.join(os.environ["nnUNet_raw"], DATASET)
+    dataset_dir = os.path.join(os.environ["nnUNet_raw"], config.DATASET_NAME)
     if not os.path.isfile(os.path.join(dataset_dir, "dataset.json")):
         raise SystemExit(
             "Dataset not found - run prepare_dataset.py first "
@@ -207,14 +203,14 @@ def main():
         )
 
     # --- 1. plan + preprocess ---------------------------------------------
-    run_cmd([cli_plan, "-d", "1", "-c", "2d"], "Planning + preprocessing (one-time, takes a while)")
+    run_cmd([cli_plan, "-d", config.DATASET_ID, "-c", "2d"], "Planning + preprocessing (one-time, takes a while)")
 
     trainer = TRAINERS[args.epochs]
-    folds = [0, 1, 2, 3, 4] if args.best else [int(f) for f in args.folds.split(",") if f.strip()]
+    folds = config.FOLDS if args.best else [int(f) for f in args.folds.split(",") if f.strip()]
 
     # --- 2. train folds ----------------------------------------------------
     for fold in folds:
-        fold_dir = os.path.join(os.environ["nnUNet_results"], DATASET, "2d", f"fold_{fold}")
+        fold_dir = os.path.join(os.environ["nnUNet_results"], config.DATASET_NAME, "2d", f"fold_{fold}")
         final_ckpt = os.path.join(fold_dir, "checkpoint_final.pth")
         if os.path.isfile(final_ckpt):
             print(f"\n  fold {fold} already fully trained - skipping.")
@@ -224,7 +220,7 @@ def main():
 
         print(f"\n  Training fold {fold} ({trainer}) - this is the long step.")
         print("  Typical pace: 1-3 min/epoch. Watch the lines below.")
-        cmd = [cli_train, "-d", "1", "-c", "2d", "-f", str(fold), "-tr", trainer]
+        cmd = [cli_train, "-d", config.DATASET_ID, "-c", "2d", "-f", str(fold), "-tr", trainer]
         proc = subprocess.Popen(cmd)
         stopper = EarlyStopper(fold_dir)
         watcher = threading.Thread(target=stopper.run, args=(proc,), daemon=True)
@@ -238,7 +234,7 @@ def main():
 
     # --- 3. optional: find best configuration (ensemble) -------------------
     if args.best and cli_best:
-        run_cmd([cli_best, "-d", "1", "-c", "2d"],
+        run_cmd([cli_best, "-d", config.DATASET_ID, "-c", "2d"],
                 "Searching the best combination of folds (ensembling)",
                 allow_fail=True)
 

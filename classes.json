@@ -1,0 +1,5 @@
+{
+  "_comment": "Edit this file to match your masks. 0 is always background. Add more classes as needed and keep the ids consecutive (0, 1, 2, ...). Masks that use 255 for cracks are converted automatically. Example with potholes: {\"background\": 0, \"crack\": 1, \"pothole\": 2}",
+  "background": 0,
+  "crack": 1
+}

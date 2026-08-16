@@ -8,6 +8,9 @@ Usage:
   python predict_and_export.py            (uses fold 0)
   python predict_and_export.py --best     (5-fold ensemble + postprocessing + test-time
                                            augmentation - the most accurate predictions)
+
+All paths and settings come from config.py (and classes.json) - edit those
+files instead of this script.
 """
 
 import argparse
@@ -22,12 +25,10 @@ import sys
 import numpy as np
 from PIL import Image
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-os.environ.setdefault("nnUNet_raw", os.path.join(BASE, "nnUNet_raw"))
-os.environ.setdefault("nnUNet_preprocessed", os.path.join(BASE, "nnUNet_preprocessed"))
-os.environ.setdefault("nnUNet_results", os.path.join(BASE, "nnUNet_results"))
+import config
 
-DATASET = "Dataset001_RoadCracks"
+config.setup_environment()
+
 DICE_RE = re.compile(r"val[_\-\s]*dice[:\s]*([0-9]*\.?[0-9]+)", re.I)
 
 
@@ -69,12 +70,12 @@ def main():
     if not cli_predict:
         raise SystemExit("nnU-Net commands not found - run: pip install nnunetv2")
 
-    dataset_dir = os.path.join(os.environ["nnUNet_raw"], DATASET)
+    dataset_dir = os.path.join(os.environ["nnUNet_raw"], config.DATASET_NAME)
     images_ts = os.path.join(dataset_dir, "imagesTs")
     if not os.path.isdir(images_ts) or not glob.glob(os.path.join(images_ts, "*.png")):
         raise SystemExit("No test images found - run prepare_dataset.py first.")
 
-    results_root = os.path.join(os.environ["nnUNet_results"], DATASET, "2d")
+    results_root = os.path.join(os.environ["nnUNet_results"], config.DATASET_NAME, "2d")
     folds = []
     for f in range(5):
         if os.path.isfile(os.path.join(results_root, f"fold_{f}", "checkpoint_final.pth")):
@@ -84,11 +85,11 @@ def main():
     folds = folds if args.best else [folds[0]]
 
     # --- 1. run prediction ---------------------------------------------------
-    pred_raw = os.path.join(BASE, "outputs", "predictions_raw")
+    pred_raw = os.path.join(config.OUTPUTS_DIR, "predictions_raw")
     shutil.rmtree(pred_raw, ignore_errors=True)
     os.makedirs(pred_raw, exist_ok=True)
 
-    cmd = [cli_predict, "-i", images_ts, "-o", pred_raw, "-d", "1", "-c", "2d",
+    cmd = [cli_predict, "-i", images_ts, "-o", pred_raw, "-d", config.DATASET_ID, "-c", "2d",
            "-f"] + [str(f) for f in folds]
     if args.best:
         cmd.append("--use_tta")  # test-time augmentation: free accuracy boost
@@ -101,12 +102,12 @@ def main():
     # --- 2. apply postprocessing if the best-config search produced it ------
     final_pred = pred_raw
     pp_pkl = None
-    for cand in glob.glob(os.path.join(os.environ["nnUNet_results"], DATASET, "**", "postprocessing.pkl"),
+    for cand in glob.glob(os.path.join(os.environ["nnUNet_results"], config.DATASET_NAME, "**", "postprocessing.pkl"),
                           recursive=True):
         pp_pkl = cand
         break
     if pp_pkl:
-        pred_pp = os.path.join(BASE, "outputs", "predictions_pp")
+        pred_pp = os.path.join(config.OUTPUTS_DIR, "predictions_pp")
         shutil.rmtree(pred_pp, ignore_errors=True)
         os.makedirs(pred_pp, exist_ok=True)
         cli_pp = find_cli("nnUNetv2_apply_postprocessing")
@@ -119,8 +120,8 @@ def main():
             print("  (postprocessing command missing - skipping it, raw predictions are fine)")
 
     # --- 3. export masks + overlays ------------------------------------------
-    pred_dir = os.path.join(BASE, "outputs", "predictions")
-    ovl_dir = os.path.join(BASE, "outputs", "overlays")
+    pred_dir = os.path.join(config.OUTPUTS_DIR, "predictions")
+    ovl_dir = os.path.join(config.OUTPUTS_DIR, "overlays")
     for d in (pred_dir, ovl_dir):
         os.makedirs(d, exist_ok=True)
 
@@ -141,7 +142,8 @@ def main():
         if os.path.isfile(src):
             img = np.array(Image.open(src).convert("RGB")).astype(np.float32)
             blend = img.copy()
-            blend[mask > 0] = blend[mask > 0] * 0.45 + np.array([255, 40, 40]) * 0.55
+            blend[mask > 0] = (blend[mask > 0] * (1.0 - config.OVERLAY_STRENGTH)
+                               + np.array(config.OVERLAY_COLOR) * config.OVERLAY_STRENGTH)
             Image.fromarray(blend.astype(np.uint8)).save(os.path.join(ovl_dir, f"{stem}.png"))
         exported += 1
 

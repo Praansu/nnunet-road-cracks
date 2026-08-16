@@ -31,6 +31,34 @@ model on your images and gives you clean prediction masks.
    - `outputs\predictions` - the crack masks the model made
    - `outputs\overlays` - the photos with cracks drawn in **red** (best for checking)
 
+## Configuration (config.py + classes.json)
+
+Everything configurable lives in two files - you never need to touch the
+scripts themselves:
+
+- **config.py** - all settings in one place:
+  - `IMAGES_DIR` / `MASKS_DIR` - the input folders (leave `None` to be asked)
+  - `NNUNET_RAW` / `NNUNET_PREPROCESSED` / `NNUNET_RESULTS` / `OUTPUTS_DIR` -
+    where prepared data, models and results go
+  - `DATASET_ID` - dataset number (change only if you run a second dataset)
+  - `EPOCHS_DEFAULT` / `EPOCHS_BEST` - training length per fold
+  - `EARLY_STOP_PATIENCE` / `EARLY_STOP_MIN_EPOCHS` - early stopping
+  - `TEST_SIZE` / `SEED` - test split
+  - `MAX_SIZE` - resize cap (auto by default)
+  - `OVERLAY_COLOR` / `OVERLAY_STRENGTH` - how cracks are drawn on the photos
+- **classes.json** - the classes and labels. Default:
+  ```json
+  { "background": 0, "crack": 1 }
+  ```
+  If your masks contain more classes (e.g. potholes), add them here and keep
+  the ids consecutive starting from 0:
+  ```json
+  { "background": 0, "crack": 1, "pothole": 2 }
+  ```
+  Masks that use 255 for cracks are converted automatically. If the masks
+  contain a class id that is not in classes.json, the script adds it as
+  `class_N` and tells you to update the file.
+
 ## Getting the best possible results
 
 The default run trains one model (fastest). For noticeably better accuracy:

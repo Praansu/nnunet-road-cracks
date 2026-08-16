@@ -4,11 +4,15 @@ Step 2: Prepare the raw dataset for nnU-Net.
 
 - Finds matching image/mask pairs in two folders (any common format: jpg, png, bmp, tiff...)
 - Converts everything to .png
-- Auto-detects the classes from the masks (0 = background; 255 or 1 = crack)
+- Uses the classes from classes.json (0 = background; 255 in masks is converted
+  to the first non-background class automatically)
 - Resizes very large images down (auto: no resize on GPUs with 10+ GB VRAM,
   otherwise longest side max 1536 px - thin cracks need all the resolution they can get)
 - Splits data into train (90%) and test (10%)
 - Builds the nnUNet_raw/Dataset001_RoadCracks folder that nnU-Net expects
+
+All paths and settings come from config.py (and classes.json) - edit those
+files instead of this script.
 
 Usage:
   python prepare_dataset.py --images C:\\path\\to\\images --masks C:\\path\\to\\masks
@@ -24,6 +28,8 @@ import sys
 
 import numpy as np
 from PIL import Image
+
+import config
 
 # Common name decorations found on mask files (e.g. "photo_mask.png" vs "photo.jpg")
 AFFIXES = [
@@ -107,22 +113,18 @@ def find_pairs(images_dir: str, masks_dir: str):
     return pairs, warnings
 
 
-def normalize_mask(mask: np.ndarray, stem: str) -> np.ndarray:
-    """Map raw mask values to class ids 0,1,2,...  0 = background."""
+def normalize_mask(mask: np.ndarray, label_ids) -> np.ndarray:
+    """Map raw mask values to the class ids from classes.json. 0 = background.
+    - {0, 255} masks: 255 -> the first non-background class id
+    - anything else is kept as-is; unknown ids are reported by the caller
+      (so a pothole id 2 never silently becomes crack id 1)"""
     vals = np.unique(mask)
     if vals.size == 1 and vals[0] == 0:
         return mask.astype(np.uint8)  # all-background mask, keep as is
     if set(vals.tolist()) <= {0, 255}:
-        return (mask > 0).astype(np.uint8)
-    # already class ids?
-    if vals[0] == 0 and np.array_equal(vals, np.arange(vals.size)):
-        return mask.astype(np.uint8)
-    # arbitrary values -> map sorted unique values to 0..k
-    mapping = {int(v): i for i, v in enumerate(vals)}
-    out = np.zeros_like(mask, dtype=np.uint8)
-    for v, i in mapping.items():
-        out[mask == v] = i
-    return out
+        target = next((v for v in sorted(label_ids) if v > 0), 1)
+        return (mask > 0).astype(np.uint8) * target
+    return mask.astype(np.uint8)  # already class ids - keep them
 
 
 def sanitize_stem(stem: str) -> str:
@@ -133,15 +135,16 @@ def sanitize_stem(stem: str) -> str:
 
 def auto_max_size():
     """Pick the resize cap based on the GPU: big VRAM -> keep native resolution
-    (best for thin cracks), small VRAM -> 1536 px cap so training fits."""
+    (best for thin cracks), small VRAM -> 1536 px cap so training fits.
+    Thresholds come from config.py."""
     try:
         import torch
         if torch.cuda.is_available():
             vram = torch.cuda.get_device_properties(0).total_memory / 1024**3
-            return 0 if vram >= 10 else 1536
+            return config.MAX_SIZE_BIG_GPU if vram >= config.BIG_GPU_VRAM_GB else config.MAX_SIZE_SMALL_GPU
     except Exception:
         pass
-    return 1536
+    return config.MAX_SIZE_SMALL_GPU
 
 
 def load_and_resize(path: str, max_size: int, is_mask: bool):
@@ -163,14 +166,14 @@ def main():
     ap = argparse.ArgumentParser(description="Prepare road-crack dataset for nnU-Net")
     ap.add_argument("--images", help="Folder containing the photos")
     ap.add_argument("--masks", help="Folder containing the masks")
-    ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "nnUNet_raw"),
+    ap.add_argument("--out", default=config.NNUNET_RAW,
                     help="Where to put the prepared dataset (default: ./nnUNet_raw)")
-    ap.add_argument("--max-size", type=int, default=None,
+    ap.add_argument("--max-size", type=int, default=config.MAX_SIZE,
                     help="Resize images longer than this many pixels (0 = never resize; "
                          "default: auto - no resize on GPUs with 10+ GB VRAM, else 1536)")
-    ap.add_argument("--test-size", type=float, default=0.1,
+    ap.add_argument("--test-size", type=float, default=config.TEST_SIZE,
                     help="Fraction of images held out as final test set (default 0.10)")
-    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--seed", type=int, default=config.SEED)
     args = ap.parse_args()
     if args.max_size is None:
         args.max_size = auto_max_size()
@@ -205,7 +208,7 @@ def main():
     test_idx = set(idx[:n_test].tolist())
 
     # --- build nnU-Net folder structure -----------------------------------
-    dataset_dir = os.path.join(args.out, "Dataset001_RoadCracks")
+    dataset_dir = os.path.join(args.out, config.DATASET_NAME)
     images_tr = os.path.join(dataset_dir, "imagesTr")
     labels_tr = os.path.join(dataset_dir, "labelsTr")
     images_ts = os.path.join(dataset_dir, "imagesTs")
@@ -213,6 +216,7 @@ def main():
         os.makedirs(d, exist_ok=True)
 
     print(f"\n[2/5] Converting to PNG (max size {args.max_size or 'unlimited'} px) ...")
+    label_ids = sorted(config.LABELS.values())
     all_classes = set()
     n_train = n_test_actual = 0
     for i, (ipath, mpath) in enumerate(pairs, 1):
@@ -221,7 +225,7 @@ def main():
             image = load_and_resize(ipath, args.max_size, is_mask=False)
             mask_img = load_and_resize(mpath, args.max_size, is_mask=True)
             mask = np.array(mask_img)
-            mask = normalize_mask(mask, stem)
+            mask = normalize_mask(mask, label_ids)
             mask_img = Image.fromarray(mask, mode="L")
             if mask_img.size != image.size:
                 mask_img = mask_img.resize(image.size, Image.Resampling.NEAREST)
@@ -245,13 +249,20 @@ def main():
         raise SystemExit("ERROR: nothing was prepared - check the warnings above")
 
     classes = sorted(all_classes)
-    if classes == [0, 1]:
-        label_names = {"background": 0, "crack": 1}
-    else:
-        label_names = {"background": 0}
-        for v in classes:
-            if v > 0:
-                label_names[f"class_{v}"] = v
+    label_names = dict(config.LABELS)  # from classes.json
+    missing = set(classes) - set(label_names.values())
+    for v in sorted(missing):
+        label_names[f"class_{v}"] = v
+        print(f"  ! masks contain class id {v} which is not in classes.json - "
+              f"added as 'class_{v}' (edit classes.json to name it properly)")
+    unseen = set(label_names.values()) - set(classes)
+    for v in sorted(unseen):
+        name = next((n for n, i in label_names.items() if i == v), str(v))
+        print(f"  NOTE: class '{name}' (id {v}) from classes.json never appears in the masks")
+    ids = sorted(label_names.values())
+    if ids != list(range(len(ids))):
+        print("  WARNING: class ids in classes.json are not consecutive (0,1,2,...) - "
+              "nnU-Net works best with consecutive ids")
 
     dataset_json = {
         "channel_names": {"0": "R", "1": "G", "2": "B"},
