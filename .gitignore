@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+
+# nnU-Net generated folders (created when you run the scripts — contain your data and trained models, never push these)
+nnUNet_raw/
+nnUNet_preprocessed/
+nnUNet_results/
+outputs/
