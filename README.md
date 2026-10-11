@@ -1,5 +1,7 @@
 # Road Crack Segmentation with nnU-Net
 
+[![CI](https://github.com/Praansu/nnunet-road-cracks/actions/workflows/ci.yml/badge.svg)](https://github.com/Praansu/nnunet-road-cracks/actions/workflows/ci.yml)
+
 A complete, automatic pipeline that trains a state-of-the-art crack-segmentation
 model on your images and gives you clean prediction masks.
 
@@ -22,7 +24,7 @@ model on your images and gives you clean prediction masks.
      (photo.jpg + photo.png, or photo.jpg + photo_mask.png - both work)
    - Photos can be jpg/png/bmp/tiff. Masks should be black/white
      (0 = no crack, 255 = crack) or class numbers (0, 1, 2, ...).
-3. Double-click **run_all.bat**
+3. Double-click **run_all.bat**. On Linux/Mac, run `chmod +x run_all.sh && ./run_all.sh` instead.
 4. When asked, type the full paths of the two folders and press Enter.
 5. Wait. Training takes hours - the window shows live progress.
    You can close the window and rerun run_all.bat anytime later:
