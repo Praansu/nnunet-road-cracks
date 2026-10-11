@@ -43,11 +43,13 @@ jobs:
         import os
         import re
 
+        # Lookbehind/ahead guards so URLs like www.python.org don't match as files
+        REF_RE = re.compile(r"(?<![\w.])[A-Za-z_]+\.(?:py|txt|json|bat|sh)(?!\w)")
         runners = {"run_all.bat": open("run_all.bat", encoding="utf-8").read(),
                    "run_all.sh": open("run_all.sh", encoding="utf-8").read()}
         missing = []
         for runner, text in runners.items():
-            for ref in set(re.findall(r"[A-Za-z_]+\.(?:py|txt|json|bat|sh)", text)):
+            for ref in set(REF_RE.findall(text)):
                 if ref not in ("requirements.txt",) and not os.path.exists(ref):
                     if ref == "classes.json":
                         continue  # read via config.py, checked above
