@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Compile all scripts (catches syntax errors without GPU/training)
+      run: python -m py_compile config.py prepare_dataset.py train_model.py predict_and_export.py
+    - name: Validate config + classes
+      run: |
+        python - <<'EOF'
+        import json
+        import config
+
+        labels = config.LABELS
+        assert labels.get("background") == 0, "background must be class 0"
+        ids = sorted(labels.values())
+        assert ids == list(range(len(ids))), f"class ids must be consecutive 0..n, got {ids}"
+        for key in ("EPOCHS_DEFAULT", "EPOCHS_BEST", "FOLDS", "TEST_SIZE", "SEED",
+                    "DATASET_ID", "OUTPUTS_DIR"):
+            assert hasattr(config, key), f"config.py missing {key}"
+        assert 0.0 < config.TEST_SIZE < 1.0, "TEST_SIZE must be a fraction"
+        with open("classes.json", encoding="utf-8") as f:
+            file_labels = {k: int(v) for k, v in json.load(f).items()
+                           if not k.startswith("_")}
+        assert file_labels == labels, "classes.json disagrees with config.LABELS"
+        print(f"OK: {len(labels)} classes, ids {ids}")
+        EOF
+    - name: Runner scripts only reference files that exist
+      run: |
+        python - <<'EOF'
+        import os
+        import re
+
+        runners = {"run_all.bat": open("run_all.bat", encoding="utf-8").read(),
+                   "run_all.sh": open("run_all.sh", encoding="utf-8").read()}
+        missing = []
+        for runner, text in runners.items():
+            for ref in set(re.findall(r"[A-Za-z_]+\.(?:py|txt|json|bat|sh)", text)):
+                if ref not in ("requirements.txt",) and not os.path.exists(ref):
+                    if ref == "classes.json":
+                        continue  # read via config.py, checked above
+                    missing.append(f"{runner} references missing file: {ref}")
+        # requirements + key scripts must exist regardless
+        for ref in ("requirements.txt", "classes.json", "config.py",
+                    "prepare_dataset.py", "train_model.py", "predict_and_export.py"):
+            if not os.path.exists(ref):
+                missing.append(f"missing file: {ref}")
+        print("\n".join(missing) if missing else "OK: all referenced files exist")
+        if missing:
+            raise SystemExit(1)
+        EOF
