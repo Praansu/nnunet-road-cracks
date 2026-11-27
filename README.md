@@ -1,18 +1,19 @@
 # Road Crack Segmentation with nnU-Net
 
-[![CI](https://github.com/Praansu/nnunet-road-cracks/actions/workflows/ci.yml/badge.svg)](https://github.com/Praansu/nnunet-road-cracks/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/Praansu/nnunet-road-cracks/ci.yml?style=flat-square)](https://github.com/Praansu/nnunet-road-cracks/actions)
+[![License](https://img.shields.io/badge/License-MIT-1F2328?style=flat-square)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10+-1F2328?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-1F2328?style=flat-square&logo=pytorch&logoColor=white)](https://pytorch.org)
+[![nnU-Net](https://img.shields.io/badge/nnU--Net-v2-1F2328?style=flat-square)](https://github.com/MIC-DKFZ/nnUNet)
 
-A complete, automatic pipeline that trains a state-of-the-art crack-segmentation
-model on your images and gives you clean prediction masks.
+A complete, automatic pipeline that trains a state-of-the-art crack-segmentation model on your images and gives you clean prediction masks.
 
 ## What you need
 
 - A Windows PC (Linux/Mac work too - see the "Manual commands" section)
 - Internet connection (first run only, downloads ~3 GB of software)
-- An NVIDIA GPU is **strongly recommended** (any size works - the script adapts).
-  Without a GPU it still works, just very slowly.
-- Python 3.10+ (install from https://www.python.org/downloads/ - **tick
-  "Add Python to PATH"** during installation)
+- An NVIDIA GPU is **strongly recommended** (any size works - the script adapts). Without a GPU it still works, just very slowly.
+- Python 3.10+ (install from https://www.python.org/downloads/ - **tick "Add Python to PATH"** during installation)
 
 ## How to use (the short version)
 
@@ -20,28 +21,22 @@ model on your images and gives you clean prediction masks.
 2. Create two folders:
    - `images` - all the photos
    - `masks` - the matching masks
-   - Every photo must have a mask with the **same name**
-     (photo.jpg + photo.png, or photo.jpg + photo_mask.png - both work)
-   - Photos can be jpg/png/bmp/tiff. Masks should be black/white
-     (0 = no crack, 255 = crack) or class numbers (0, 1, 2, ...).
+   - Every photo must have a mask with the **same name** (photo.jpg + photo.png, or photo.jpg + photo_mask.png - both work)
+   - Photos can be jpg/png/bmp/tiff. Masks should be black/white (0 = no crack, 255 = crack) or class numbers (0, 1, 2, ...).
 3. Double-click **run_all.bat**. On Linux/Mac, run `chmod +x run_all.sh && ./run_all.sh` instead.
 4. When asked, type the full paths of the two folders and press Enter.
-5. Wait. Training takes hours - the window shows live progress.
-   You can close the window and rerun run_all.bat anytime later:
-   training **resumes** from where it stopped.
+5. Wait. Training takes hours - the window shows live progress. You can close the window and rerun run_all.bat anytime later: training **resumes** from where it stopped.
 6. Results land in `outputs\`:
    - `outputs\predictions` - the crack masks the model made
    - `outputs\overlays` - the photos with cracks drawn in **red** (best for checking)
 
 ## Configuration (config.py + classes.json)
 
-Everything configurable lives in two files - you never need to touch the
-scripts themselves:
+Everything configurable lives in two files - you never need to touch the scripts themselves:
 
 - **config.py** - all settings in one place:
   - `IMAGES_DIR` / `MASKS_DIR` - the input folders (leave `None` to be asked)
-  - `NNUNET_RAW` / `NNUNET_PREPROCESSED` / `NNUNET_RESULTS` / `OUTPUTS_DIR` -
-    where prepared data, models and results go
+  - `NNUNET_RAW` / `NNUNET_PREPROCESSED` / `NNUNET_RESULTS` / `OUTPUTS_DIR` - where prepared data, models and results go
   - `DATASET_ID` - dataset number (change only if you run a second dataset)
   - `EPOCHS_DEFAULT` / `EPOCHS_BEST` - training length per fold
   - `EARLY_STOP_PATIENCE` / `EARLY_STOP_MIN_EPOCHS` - early stopping
@@ -52,40 +47,30 @@ scripts themselves:
   ```json
   { "background": 0, "crack": 1 }
   ```
-  If your masks contain more classes (e.g. potholes), add them here and keep
-  the ids consecutive starting from 0:
+  If your masks contain more classes (e.g. potholes), add them here and keep the ids consecutive starting from 0:
   ```json
   { "background": 0, "crack": 1, "pothole": 2 }
   ```
-  Masks that use 255 for cracks are converted automatically. If the masks
-  contain a class id that is not in classes.json, the script adds it as
-  `class_N` and tells you to update the file.
+  Masks that use 255 for cracks are converted automatically. If the masks contain a class id that is not in classes.json, the script adds it as `class_N` and tells you to update the file.
 
 ## Getting the best possible results
 
 The default run trains one model (fastest). For noticeably better accuracy:
 
-```
-python train_model.py --best        (trains 5 models, up to 1000 epochs each - ~5x longer)
-python predict_and_export.py --best (combines them + postprocessing + test-time augmentation)
+```bash
+python train_model.py --best        # trains 5 models, up to 1000 epochs each - ~5x longer
+python predict_and_export.py --best # combines them + postprocessing + test-time augmentation
 ```
 
-`--best` mode stacks four accuracy boosts: 5-fold ensemble, longer training
-(1000-epoch cap, early stopping still protects against overfitting),
-postprocessing, and test-time augmentation. Expect roughly +2-5% Dice over
-the default run.
+`--best` mode stacks four accuracy boosts: 5-fold ensemble, longer training (1000-epoch cap, early stopping still protects against overfitting), postprocessing, and test-time augmentation. Expect roughly +2-5% Dice over the default run.
 
-Big GPU note: on a machine with 10+ GB VRAM, preparation keeps your photos at
-full resolution automatically (no resizing) - thin cracks benefit a lot from
-that. On smaller GPUs it resizes to 1536 px so training still fits.
+Big GPU note: on a machine with 10+ GB VRAM, preparation keeps your photos at full resolution automatically (no resizing) - thin cracks benefit a lot from that. On smaller GPUs it resizes to 1536 px so training still fits.
 
 ## What the numbers mean
 
 nnU-Net reports a "Dice score" (0-1, 1 = perfect). For thin cracks:
-- **0.60 - 0.85 is GOOD.** Thin structures always score lower, even when they
-  look perfect (a 1-pixel shift on a 2-pixel crack drops the score a lot).
-- Always judge with your eyes too: if the red lines follow the real cracks,
-  the model works.
+- **0.60 - 0.85 is GOOD.** Thin structures always score lower, even when they look perfect (a 1-pixel shift on a 2-pixel crack drops the score a lot).
+- Always judge with your eyes too: if the red lines follow the real cracks, the model works.
 
 ## Troubleshooting
 
@@ -105,3 +90,7 @@ python prepare_dataset.py --images ./images --masks ./masks
 python train_model.py          # or: python train_model.py --best
 python predict_and_export.py   # or: python predict_and_export.py --best
 ```
+
+## License
+
+MIT — use it, break it, improve it.
